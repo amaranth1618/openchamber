@@ -22,23 +22,31 @@ const aliases = ['anymodel'];
 const ANYMODEL_BALANCE_URL = 'https://anymodel.org/v1/balance';
 const TOKEN_TO_USD = 0.05 / 1_000_000;
 
+export const apiKeyFromConfig = (mergedConfig) => {
+  for (const alias of aliases) {
+    // V2 shape (`providers.<id>.settings.apiKey`) first, then the legacy
+    // V1 shape (`provider.<id>.options.apiKey`), both as a literal, an
+    // `{env:VAR}` or a `{file:path}` reference.
+    const providerConfig = mergedConfig?.providers?.[alias] ?? mergedConfig?.provider?.[alias];
+    const apiKey = providerConfig?.settings?.apiKey ?? providerConfig?.options?.apiKey;
+    if (apiKey) {
+      return resolveConfigApiKey(apiKey);
+    }
+  }
+  return null;
+};
+
 const getApiKey = (auth) => {
   const entry = normalizeAuthEntry(getAuthEntry(auth, aliases));
   const apiKeyFromAuth = asNonEmptyString(entry?.key) ?? asNonEmptyString(entry?.token);
 
-  if (asNonEmptyString(apiKeyFromAuth)) {
+  if (apiKeyFromAuth) {
     return apiKeyFromAuth;
   }
 
   try {
     const { mergedConfig } = readConfigLayers();
-
-    for (const alias of aliases) {
-      const providerConfig = mergedConfig?.provider?.[alias];
-      if (providerConfig?.options?.apiKey) {
-        return resolveConfigApiKey(providerConfig.options.apiKey);
-      }
-    }
+    return apiKeyFromConfig(mergedConfig);
   } catch {
     // Ignore config read errors; the provider will be treated as not configured.
   }

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { fetchQuota, isConfigured } from './anymodel.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiKeyFromConfig, fetchQuota, isConfigured } from './anymodel.js';
 
 const readAuth = () => ({ anymodel: { key: 'test-token' } });
 
@@ -138,5 +138,55 @@ describe('AnyModel quota provider', () => {
     expect(result.ok).toBe(false);
     expect(result.configured).toBe(true);
     expect(result.usage).toBeNull();
+  });
+
+  describe('apiKeyFromConfig', () => {
+    // The server runtime is Bun, where `os` is a global; the Node test
+    // environment needs a stub for `resolveConfigApiKey`'s default `homeDir`.
+    beforeEach(() => {
+      vi.stubGlobal('os', { homedir: () => '/home/test' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('reads the V2 shape providers.anymodel.settings.apiKey', () => {
+      expect(apiKeyFromConfig({ providers: { anymodel: { settings: { apiKey: 'config-key' } } } })).toBe('config-key');
+    });
+
+    it('reads the legacy V1 shape provider.anymodel.options.apiKey', () => {
+      expect(apiKeyFromConfig({ provider: { anymodel: { options: { apiKey: 'legacy-key' } } } })).toBe('legacy-key');
+    });
+
+    it('prefers the V2 shape over the legacy one', () => {
+      const mergedConfig = {
+        providers: { anymodel: { settings: { apiKey: 'v2-key' } } },
+        provider: { anymodel: { options: { apiKey: 'v1-key' } } },
+      };
+      expect(apiKeyFromConfig(mergedConfig)).toBe('v2-key');
+    });
+
+    it('resolves an {env:...} reference', () => {
+      vi.stubEnv('ANYMODEL_TEST_KEY', 'env-key');
+      try {
+        expect(apiKeyFromConfig({ providers: { anymodel: { settings: { apiKey: '{env:ANYMODEL_TEST_KEY}' } } } })).toBe('env-key');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it.each([
+      {},
+      { providers: {} },
+      { providers: { anymodel: {} } },
+      { providers: { anymodel: { settings: {} } } },
+      { providers: { anymodel: { settings: { apiKey: '' } } } },
+      { providers: { anymodel: { settings: { apiKey: '  ' } } } },
+      { providers: { anymodel: { settings: { apiKey: 42 } } } },
+      { provider: { anymodel: { options: {} } } },
+    ])('returns null for %j', (mergedConfig) => {
+      expect(apiKeyFromConfig(mergedConfig)).toBeNull();
+    });
   });
 });
